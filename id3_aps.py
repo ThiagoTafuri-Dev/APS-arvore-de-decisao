@@ -1,12 +1,16 @@
-"""ID3 em Python puro — versão em Português para a APS."""
+"""
+APS: Inteligência Artificial
+Thiago Tafuri Santos
+Matrícula: 2024101346
+
+"""
 
 import math
 import unittest
 from collections import Counter
 
 
-# --- Teoria da Informação ---------------------------------------------------
-# Os dados são uma lista de pares (x, y): x = dict de atributos, y = classe/rótulo.
+# Teoria da Informação 
 
 def entropia(rotulos):
     """Calcula H(S) = -sum(p * log2(p)), assumindo 0 * log2(0) = 0."""
@@ -31,68 +35,62 @@ def ganho_informacao(dados, atributo):
     return entropia([y for _, y in dados]) - resto
 
 
-# --- Estrutura da Árvore de Decisão -------------------------------------------
+# Estrutura da Árvore de Decisão 
 
-class No:
-    def __init__(self, atributo=None, ramos=None, rotulo=None, padrao=None):
-        self.atributo = atributo      # Atributo testado no nó (None caso seja folha)
-        self.ramos = ramos or {}      # {valor_do_atributo: próximo_nó}
-        self.rotulo = rotulo          # Classe final predita (apenas em nós folha)
-        self.padrao = padrao          # Classe majoritária (para valores não vistos no treino)
+class Node:
+    def __init__(self, attribute=None, branches=None, label=None, default=None):
+        self.attribute = attribute    # atributo testado neste nó (None se for folha)
+        self.branches = branches or {}  # {valor_do_atributo: próximo nó}
+        self.label = label            # classe final (apenas se for folha)
+        self.default = default        # classe majoritária (usada p/ valores inéditos)
 
 
-class ArvoreDecisaoID3:
-    def ajustar(self, X, y):
-        """Treina a árvore de decisão ID3 (equivalente ao método fit)."""
-        self.raiz = self._construir(list(zip(X, y)), list(X[0]))
+class DecisionTreeID3:
+    def fit(self, X, y):
+        """Treina a árvore ID3 a partir de X (lista de dicts) e y (lista de rótulos)."""
+        self.root = self._construir(list(zip(X, y)), list(X[0]))
         return self
 
     def _construir(self, dados, atributos):
         rotulos = [y for _, y in dados]
         maioria = Counter(rotulos).most_common(1)[0][0]
 
-        # Condição de parada (Nó Folha): dados puros ou sem atributos restantes
         if len(set(rotulos)) == 1 or not atributos:
-            return No(rotulo=maioria, padrao=maioria)
+            return Node(label=maioria, default=maioria)
 
-        # Escolhe o atributo de maior Ganho de Informação
         melhor_atributo = max(atributos, key=lambda a: ganho_informacao(dados, a))
         atributos_restantes = [a for a in atributos if a != melhor_atributo]
         
-        no = No(atributo=melhor_atributo, padrao=maioria)
+        no = Node(attribute=melhor_atributo, default=maioria)
         for valor, subconjunto in agrupar_por(dados, melhor_atributo).items():
-            no.ramos[valor] = self._construir(subconjunto, atributos_restantes)
+            no.branches[valor] = self._construir(subconjunto, atributos_restantes)
             
         return no
 
-    def predizer(self, X_teste):
-        """Realiza predições para novas instâncias (equivalente ao método predict)."""
+    def predict(self, X_test):
+        """Retorna a classe prevista para cada instância de X_test."""
         predicoes = []
-        for x in X_teste:
-            no = self.raiz
-            while no.ramos and x.get(no.atributo) in no.ramos:
-                no = no.ramos[x[no.atributo]]
-            # Se a folha tiver nó interno ou valor inédito, utiliza a classe padrão (majoritária)
-            predicoes.append(no.rotulo if not no.ramos else no.padrao)
+        for x in X_test:
+            no = self.root
+            while no.branches and x.get(no.attribute) in no.branches:
+                no = no.branches[x[no.attribute]]
+            # Se parou num nó interno, o valor era inédito: usa a classe majoritária
+            predicoes.append(no.label if not no.branches else no.default)
         return predicoes
-
-    # Mantemos aliases fit e predict para compatibilidade com padrão scikit-learn
-    fit = ajustar
-    predict = predizer
 
 
 def imprimir_arvore(no, recuo=""):
     """Exibe visualmente a árvore de decisão no terminal."""
-    if not no.ramos:
-        print(f"{recuo}→ Decisão: {no.rotulo}")
+    if not no.branches:
+        print(f"{recuo}→ Decisão: {no.label}")
         return
-    print(f"{recuo}[Atributo: {no.atributo}]")
-    for valor, filho in no.ramos.items():
+    print(f"{recuo}[Atributo: {no.attribute}]")
+    for valor, filho in no.branches.items():
         print(f"{recuo}  {valor}:")
         imprimir_arvore(filho, recuo + "    ")
 
 
-# --- Conjunto de Dados de Exemplo (Aula / Tema 4) -----------------------------
+# Conjunto de Dados de Exemplo
 
 DATASET = [
     {"montante": "médio", "idade": "sênior", "salário": "baixo", "conta": "sim", "empréstimo": "não"},
@@ -115,7 +113,26 @@ X = [{k: v for k, v in linha.items() if k != "empréstimo"} for linha in DATASET
 y = [linha["empréstimo"] for linha in DATASET]
 
 
-# --- Testes Unitários ---------------------------------------------------------
+# Casos de Demonstração (nenhum aparece no conjunto de treino)
+# Cada item: (cliente novo, decisão esperada)
+
+CASOS_DEMO = [
+    ({"montante": "baixo",   "idade": "média",  "salário": "alto",  "conta": "não"}, "sim"),  # montante -> baixo
+    ({"montante": "médio",   "idade": "jovem",  "salário": "baixo", "conta": "sim"}, "não"),  # montante -> médio -> salário
+    ({"montante": "alto",    "idade": "sênior", "salário": "alto",  "conta": "não"}, "não"),  # montante -> alto -> conta
+    ({"montante": "inédito", "idade": "jovem",  "salário": "alto",  "conta": "sim"}, "sim"),  # valor desconhecido -> maioria
+]
+
+
+def demonstrar_casos(modelo):
+    """Classifica os clientes novos e mostra a decisão de cada um."""
+    clientes = [cliente for cliente, _ in CASOS_DEMO]
+    for i, (cliente, decisao) in enumerate(zip(clientes, modelo.predict(clientes)), start=1):
+        print(f"Caso {i}: {cliente}")
+        print(f"  → Empréstimo: {decisao}")
+
+
+# Testes Unitários 
 
 class TesteID3(unittest.TestCase):
     def test_entropia_inicial(self):
@@ -123,19 +140,26 @@ class TesteID3(unittest.TestCase):
 
     def test_raiz_eh_montante(self):
         self.assertAlmostEqual(ganho_informacao(list(zip(X, y)), "montante"), 0.247, delta=0.002)
-        self.assertEqual(ArvoreDecisaoID3().ajustar(X, y).raiz.atributo, "montante")
+        self.assertEqual(DecisionTreeID3().fit(X, y).root.attribute, "montante")
 
     def test_acuracia_treinamento(self):
-        modelo = ArvoreDecisaoID3().ajustar(X, y)
-        predicoes = modelo.predizer(X)
+        modelo = DecisionTreeID3().fit(X, y)
+        predicoes = modelo.predict(X)
         acuracia = sum(p == t for p, t in zip(predicoes, y)) / len(y)
         self.assertEqual(acuracia, 1.0)
 
+    def test_casos_demonstracao(self):
+        modelo = DecisionTreeID3().fit(X, y)
+        predicoes = modelo.predict([cliente for cliente, _ in CASOS_DEMO])
+        self.assertEqual(predicoes, [esperado for _, esperado in CASOS_DEMO])
+
 
 if __name__ == "__main__":
-    modelo = ArvoreDecisaoID3().ajustar(X, y)
+    modelo = DecisionTreeID3().fit(X, y)
     print(f"Entropia inicial H(S): {entropia(y):.4f}\n")
     print("=== ESTRUTURA DA ÁRVORE APRENDIDA ===")
-    imprimir_arvore(modelo.raiz)
+    imprimir_arvore(modelo.root)
+    print("\n=== DEMONSTRAÇÃO COM CLIENTES NOVOS ===")
+    demonstrar_casos(modelo)
     print("\n=== EXECUTANDO TESTES UNITÁRIOS ===")
     unittest.main(argv=["ignorado"], exit=False, verbosity=2)
